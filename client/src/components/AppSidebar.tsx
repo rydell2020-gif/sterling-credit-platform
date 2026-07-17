@@ -73,7 +73,7 @@ export function AppSidebar() {
             </Link>
           );
         })}
-        {user?.role === "admin" && (
+        {(user?.role === "admin" || user?.role === "owner") && (
           <Link
             href="/admin"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${

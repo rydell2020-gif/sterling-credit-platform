@@ -14,10 +14,10 @@ import scsLogo from "@assets/scs-logo.jpg";
 
 type AuthMode = "login" | "signup" | "magic";
 
-export default function LoginPage() {
+export default function LoginPage({ initialMode = "login" }: { initialMode?: AuthMode } = {}) {
   const [, navigate] = useLocation();
   const { setUser } = useAuth();
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");

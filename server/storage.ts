@@ -3,7 +3,7 @@ import {
   type CreditReport, type Tradeline, type Dispute,
   type AIAnalysis, type BureauComparison, type AuditLog,
   type Expense, type InsertExpense,
-  type Message, type CalendarEvent, type Document
+  type Message, type CalendarEvent, type Document, type Invite
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -70,6 +70,13 @@ export interface IStorage {
   // User cascade delete
   deleteUser(id: string): Promise<boolean>;
 
+  // Invites
+  getInvites(): Promise<Invite[]>;
+  getInviteByToken(token: string): Promise<Invite | undefined>;
+  createInvite(i: Omit<Invite, "id">): Promise<Invite>;
+  updateInvite(id: string, data: Partial<Invite>): Promise<Invite | undefined>;
+  revokeInvite(id: string): Promise<boolean>;
+
   // Stats
   getStats(): Promise<{ users: number; reports: number; disputes: number; analyses: number }>;
 }
@@ -86,6 +93,7 @@ export class MemStorage implements IStorage {
   private messagesMap: Map<string, Message> = new Map();
   private calendarEvents: Map<string, CalendarEvent> = new Map();
   private documents: Map<string, Document> = new Map();
+  private invitesMap: Map<string, Invite> = new Map();
 
   constructor() {
     this.seedDemoData();
@@ -119,6 +127,20 @@ export class MemStorage implements IStorage {
       createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
     };
     this.users.set(adminUser.id, adminUser);
+
+    // Owner user (Rydell)
+    const ownerUser: User = {
+      id: "owner-user-1",
+      email: "rydell2020@gmail.com",
+      password: "sterling2026",
+      fullName: "Rydell (Owner)",
+      role: "owner",
+      croaDisclosureAcknowledged: true,
+      csoConsent: true,
+      rightToCancelExpiresAt: null,
+      createdAt: new Date(Date.now() - 90 * 86400000).toISOString(),
+    };
+    this.users.set(ownerUser.id, ownerUser);
 
     // Credit reports
     const reports = [
@@ -665,6 +687,33 @@ export class MemStorage implements IStorage {
     for (const [k, v] of this.messagesMap) if (v.clientId === id) this.messagesMap.delete(k);
     for (const [k, v] of this.calendarEvents) if (v.userId === id) this.calendarEvents.delete(k);
     for (const [k, v] of this.documents) if (v.userId === id) this.documents.delete(k);
+    return true;
+  }
+
+  // Invites
+  async getInvites() {
+    return Array.from(this.invitesMap.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+  async getInviteByToken(token: string) {
+    return Array.from(this.invitesMap.values()).find(i => i.token === token);
+  }
+  async createInvite(i: Omit<Invite, "id">) {
+    const id = randomUUID();
+    const invite: Invite = { ...i, id };
+    this.invitesMap.set(id, invite);
+    return invite;
+  }
+  async updateInvite(id: string, data: Partial<Invite>) {
+    const invite = this.invitesMap.get(id);
+    if (!invite) return undefined;
+    const updated = { ...invite, ...data };
+    this.invitesMap.set(id, updated);
+    return updated;
+  }
+  async revokeInvite(id: string) {
+    const invite = this.invitesMap.get(id);
+    if (!invite) return false;
+    this.invitesMap.set(id, { ...invite, status: "revoked" });
     return true;
   }
 

@@ -187,3 +187,21 @@ export const documents = pgTable("documents", {
 });
 
 export type Document = typeof documents.$inferSelect;
+
+// Invites (email-based enrollment tokens)
+export const invites = pgTable("invites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  token: varchar("token").notNull().unique(),
+  email: text("email").notNull(),
+  fullName: text("full_name"),
+  role: text("role").notNull().default("user"),  // "user" | "admin" | "owner"
+  invitedBy: varchar("invited_by").notNull(),
+  status: text("status").notNull().default("pending"),  // "pending" | "accepted" | "revoked" | "expired"
+  message: text("message"),
+  acceptedUserId: varchar("accepted_user_id"),
+  createdAt: text("created_at").default(sql`now()`),
+  expiresAt: text("expires_at"),
+  acceptedAt: text("accepted_at"),
+});
+
+export type Invite = typeof invites.$inferSelect;

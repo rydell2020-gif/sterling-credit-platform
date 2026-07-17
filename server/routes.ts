@@ -359,9 +359,128 @@ export async function registerRoutes(
   });
 
   app.delete("/api/admin/users/:id", async (req, res) => {
+    const target = await storage.getUser(req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    // Owner cannot be deleted (except by another owner)
+    const actorId = req.header("x-user-id") || "";
+    const actor = actorId ? await storage.getUser(actorId) : undefined;
+    if (target.role === "owner" && actor?.role !== "owner") {
+      return res.status(403).json({ error: "Only an owner can remove an owner" });
+    }
     const ok = await storage.deleteUser(req.params.id);
     if (!ok) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
+  });
+
+  // ============ Invites ============
+  // List all invites (admin/owner)
+  app.get("/api/admin/invites", async (_req, res) => {
+    const invites = await storage.getInvites();
+    res.json(invites);
+  });
+
+  // Create a new invite
+  app.post("/api/admin/invites", async (req, res) => {
+    const { email, fullName, role, message } = req.body as {
+      email: string; fullName?: string; role: string; message?: string;
+    };
+    if (!email || !role) return res.status(400).json({ error: "Email and role are required" });
+    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "Invalid email" });
+    if (!["user", "admin", "owner"].includes(role)) {
+      return res.status(400).json({ error: "Invalid role" });
+    }
+    // Actor identity
+    const actorId = req.header("x-user-id") || "";
+    const actor = actorId ? await storage.getUser(actorId) : undefined;
+    if (!actor) return res.status(401).json({ error: "Not authenticated" });
+    // Only owners can invite other owners
+    if (role === "owner" && actor.role !== "owner") {
+      return res.status(403).json({ error: "Only an owner can invite another owner" });
+    }
+    // Existing account?
+    const existing = await storage.getUserByEmail(email);
+    if (existing) return res.status(400).json({ error: "An account already exists for this email" });
+    // Generate token (16 bytes hex)
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, "0")).join("");
+    const invite = await storage.createInvite({
+      token,
+      email,
+      fullName: fullName || null,
+      role,
+      invitedBy: actor.id,
+      status: "pending",
+      message: message || null,
+      acceptedUserId: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 14 * 86400000).toISOString(),  // 14 days
+      acceptedAt: null,
+    });
+    res.json(invite);
+  });
+
+  // Revoke an invite
+  app.post("/api/admin/invites/:id/revoke", async (req, res) => {
+    const ok = await storage.revokeInvite(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  // Look up invite by token (public — for accept page)
+  app.get("/api/invites/:token", async (req, res) => {
+    const invite = await storage.getInviteByToken(req.params.token);
+    if (!invite) return res.status(404).json({ error: "Invite not found" });
+    if (invite.status !== "pending") {
+      return res.status(410).json({ error: `Invite ${invite.status}` });
+    }
+    if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+      await storage.updateInvite(invite.id, { status: "expired" });
+      return res.status(410).json({ error: "Invite expired" });
+    }
+    // Only expose safe fields
+    res.json({
+      token: invite.token,
+      email: invite.email,
+      fullName: invite.fullName,
+      role: invite.role,
+      message: invite.message,
+      expiresAt: invite.expiresAt,
+      status: invite.status,
+    });
+  });
+
+  // Accept an invite (public)
+  app.post("/api/invites/:token/accept", async (req, res) => {
+    const { fullName, password } = req.body as { fullName: string; password: string };
+    if (!fullName || !password) return res.status(400).json({ error: "Name and password are required" });
+    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    const invite = await storage.getInviteByToken(req.params.token);
+    if (!invite) return res.status(404).json({ error: "Invite not found" });
+    if (invite.status !== "pending") return res.status(410).json({ error: `Invite ${invite.status}` });
+    if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+      await storage.updateInvite(invite.id, { status: "expired" });
+      return res.status(410).json({ error: "Invite expired" });
+    }
+    const existing = await storage.getUserByEmail(invite.email);
+    if (existing) return res.status(400).json({ error: "An account already exists for this email" });
+    const user = await storage.createUser({ email: invite.email, password, fullName });
+    await storage.updateUser(user.id, {
+      role: invite.role,
+      croaDisclosureAcknowledged: true,
+      csoConsent: true,
+      rightToCancelExpiresAt: new Date(Date.now() + 3 * 86400000).toISOString(),
+    });
+    await storage.updateInvite(invite.id, {
+      status: "accepted",
+      acceptedUserId: user.id,
+      acceptedAt: new Date().toISOString(),
+    });
+    const finalUser = await storage.getUser(user.id);
+    res.json({
+      user: finalUser ? {
+        id: finalUser.id, email: finalUser.email, fullName: finalUser.fullName, role: finalUser.role,
+      } : null,
+    });
   });
 
   return httpServer;

@@ -17,6 +17,7 @@ import ExpensesPage from "@/pages/ExpensesPage";
 import CalendarPage from "@/pages/CalendarPage";
 import CompliancePage from "@/pages/CompliancePage";
 import AdminPage from "@/pages/AdminPage";
+import InvitePage from "@/pages/InvitePage";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -35,6 +36,13 @@ function AppRouter() {
       <Route path="/">
         {user ? <Redirect to="/dashboard" /> : <LoginPage />}
       </Route>
+      <Route path="/signup">
+        {user ? <Redirect to="/dashboard" /> : <LoginPage initialMode="signup" />}
+      </Route>
+      <Route path="/login">
+        {user ? <Redirect to="/dashboard" /> : <LoginPage />}
+      </Route>
+      <Route path="/invite/:token" component={InvitePage} />
       <Route path="/dashboard">
         <ProtectedRoute component={DashboardPage} />
       </Route>
