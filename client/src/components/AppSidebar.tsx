@@ -10,6 +10,8 @@ import {
   Shield,
   Settings,
   LogOut,
+  DollarSign,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import scsLogo from "@assets/scs-logo.jpg";
 
@@ -20,6 +22,8 @@ const navItems = [
   { path: "/disputes", label: "Disputes", icon: FileText },
   { path: "/comparison", label: "Comparison", icon: GitCompare },
   { path: "/report", label: "Report", icon: Download },
+  { path: "/expenses", label: "Expenses", icon: DollarSign },
+  { path: "/calendar", label: "Calendar", icon: CalendarIcon },
   { path: "/compliance", label: "Compliance", icon: Shield },
 ];
 

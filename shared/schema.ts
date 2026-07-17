@@ -121,3 +121,69 @@ export const auditLogs = pgTable("audit_logs", {
 });
 
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+// Expenses — for both client personal expenses and admin business expenses
+export const expenses = pgTable("expenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),  // owner
+  scope: text("scope").notNull().default("personal"),  // "personal" | "business"
+  category: text("category").notNull(),  // rent, utilities, credit_card, food, transport, insurance, subscription, ads, software, mileage, client_fee, other
+  vendor: text("vendor"),
+  amount: real("amount").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  occurredOn: text("occurred_on").notNull(),  // YYYY-MM-DD
+  paymentMethod: text("payment_method"),  // cash, debit, credit, ach, check
+  notes: text("notes"),
+  receiptUrl: text("receipt_url"),
+  isRecurring: boolean("is_recurring").default(false),
+  createdAt: text("created_at").default(sql`now()`),
+});
+
+export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+export type Expense = typeof expenses.$inferSelect;
+
+// Messages — chat threads between admin and client (one per client)
+export const messages = pgTable("messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  senderId: varchar("sender_id").notNull(),
+  senderRole: text("sender_role").notNull(),  // "admin" | "user"
+  body: text("body").notNull(),
+  attachmentUrl: text("attachment_url"),
+  attachmentName: text("attachment_name"),
+  readAt: text("read_at"),
+  createdAt: text("created_at").default(sql`now()`),
+});
+
+export type Message = typeof messages.$inferSelect;
+
+// Calendar events
+export const calendarEvents = pgTable("calendar_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  disputeId: varchar("dispute_id"),
+  title: text("title").notNull(),
+  eventType: text("event_type").notNull(),  // "fcra_30_day" | "fcra_15_day_extension" | "custom" | "followup"
+  eventDate: text("event_date").notNull(),  // YYYY-MM-DD
+  status: text("status").notNull().default("pending"),
+  colorTag: text("color_tag"),  // gold, red, green, blue
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: text("created_at").default(sql`now()`),
+});
+
+export type CalendarEvent = typeof calendarEvents.$inferSelect;
+
+// Documents (beyond credit reports)
+export const documents = pgTable("documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  docType: text("doc_type").notNull(),  // "3b_report" | "4k_report" | "id_license" | "utility_bill" | "other"
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size"),
+  status: text("status").notNull().default("uploaded"),
+  createdAt: text("created_at").default(sql`now()`),
+});
+
+export type Document = typeof documents.$inferSelect;

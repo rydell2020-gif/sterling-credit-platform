@@ -1,7 +1,9 @@
 import {
   type User, type InsertUser,
   type CreditReport, type Tradeline, type Dispute,
-  type AIAnalysis, type BureauComparison, type AuditLog
+  type AIAnalysis, type BureauComparison, type AuditLog,
+  type Expense, type InsertExpense,
+  type Message, type CalendarEvent, type Document
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -39,6 +41,35 @@ export interface IStorage {
   getAuditLogs(limit?: number): Promise<AuditLog[]>;
   createAuditLog(log: Omit<AuditLog, "id">): Promise<AuditLog>;
 
+  // Expenses
+  getExpenses(userId: string, scope?: string): Promise<Expense[]>;
+  getAllExpenses(scope?: string): Promise<Expense[]>;
+  createExpense(e: InsertExpense): Promise<Expense>;
+  updateExpense(id: string, data: Partial<Expense>): Promise<Expense | undefined>;
+  deleteExpense(id: string): Promise<boolean>;
+
+  // Messages
+  getMessages(clientId: string): Promise<Message[]>;
+  getUnreadCount(clientId: string, forRole: string): Promise<number>;
+  createMessage(m: Omit<Message, "id">): Promise<Message>;
+  markMessagesRead(clientId: string, forRole: string): Promise<void>;
+
+  // Calendar Events
+  getCalendarEvents(userId: string): Promise<CalendarEvent[]>;
+  getAllCalendarEvents(): Promise<CalendarEvent[]>;
+  createCalendarEvent(e: Omit<CalendarEvent, "id">): Promise<CalendarEvent>;
+  updateCalendarEvent(id: string, data: Partial<CalendarEvent>): Promise<CalendarEvent | undefined>;
+  deleteCalendarEvent(id: string): Promise<boolean>;
+  generateFcraEventsForDispute(dispute: Dispute): Promise<CalendarEvent[]>;
+
+  // Documents
+  getDocuments(userId: string): Promise<Document[]>;
+  createDocument(d: Omit<Document, "id">): Promise<Document>;
+  deleteDocument(id: string): Promise<boolean>;
+
+  // User cascade delete
+  deleteUser(id: string): Promise<boolean>;
+
   // Stats
   getStats(): Promise<{ users: number; reports: number; disputes: number; analyses: number }>;
 }
@@ -51,6 +82,10 @@ export class MemStorage implements IStorage {
   private analysesMap: Map<string, AIAnalysis> = new Map();
   private comparisonsMap: Map<string, BureauComparison> = new Map();
   private auditLogsMap: Map<string, AuditLog> = new Map();
+  private expenses: Map<string, Expense> = new Map();
+  private messagesMap: Map<string, Message> = new Map();
+  private calendarEvents: Map<string, CalendarEvent> = new Map();
+  private documents: Map<string, Document> = new Map();
 
   constructor() {
     this.seedDemoData();
@@ -323,6 +358,65 @@ export class MemStorage implements IStorage {
       const id = `log-${i + 1}`;
       this.auditLogsMap.set(id, { ...l, id });
     });
+
+    // ===== Expenses =====
+    const sampleExpenses: Omit<Expense, "id">[] = [
+      // Personal (Maria)
+      { userId: "demo-user-1", scope: "personal", category: "rent", vendor: "Oakwood Apartments", amount: 1450, currency: "USD", occurredOn: "2025-06-01", paymentMethod: "ach", notes: "Monthly rent", receiptUrl: null, isRecurring: true, createdAt: new Date("2025-06-01").toISOString() },
+      { userId: "demo-user-1", scope: "personal", category: "food", vendor: "H-E-B", amount: 340, currency: "USD", occurredOn: "2025-06-05", paymentMethod: "debit", notes: "Groceries", receiptUrl: null, isRecurring: false, createdAt: new Date("2025-06-05").toISOString() },
+      { userId: "demo-user-1", scope: "personal", category: "transport", vendor: "Shell", amount: 180, currency: "USD", occurredOn: "2025-06-08", paymentMethod: "credit", notes: "Gas", receiptUrl: null, isRecurring: false, createdAt: new Date("2025-06-08").toISOString() },
+      { userId: "demo-user-1", scope: "personal", category: "utilities", vendor: "Verizon", amount: 95, currency: "USD", occurredOn: "2025-06-10", paymentMethod: "credit", notes: "Phone bill", receiptUrl: null, isRecurring: true, createdAt: new Date("2025-06-10").toISOString() },
+      // Business (Admin)
+      { userId: "admin-user-1", scope: "business", category: "ads", vendor: "Facebook Ads", amount: 250, currency: "USD", occurredOn: "2025-06-02", paymentMethod: "credit", notes: "Lead generation campaign", receiptUrl: null, isRecurring: false, createdAt: new Date("2025-06-02").toISOString() },
+      { userId: "admin-user-1", scope: "business", category: "software", vendor: "Adobe Creative Cloud", amount: 89, currency: "USD", occurredOn: "2025-06-04", paymentMethod: "credit", notes: "Monthly subscription", receiptUrl: null, isRecurring: true, createdAt: new Date("2025-06-04").toISOString() },
+      { userId: "admin-user-1", scope: "business", category: "client_fee", vendor: "IdentityIQ", amount: 299, currency: "USD", occurredOn: "2025-06-06", paymentMethod: "ach", notes: "Client credit monitoring fee", receiptUrl: null, isRecurring: false, createdAt: new Date("2025-06-06").toISOString() },
+      { userId: "admin-user-1", scope: "business", category: "mileage", vendor: "Client visit", amount: 42, currency: "USD", occurredOn: "2025-06-09", paymentMethod: "cash", notes: "Mileage reimbursement", receiptUrl: null, isRecurring: false, createdAt: new Date("2025-06-09").toISOString() },
+    ];
+    sampleExpenses.forEach((e, i) => {
+      const id = `exp-${i + 1}`;
+      this.expenses.set(id, { ...e, id });
+    });
+
+    // ===== Messages (clientId = demo-user-1) =====
+    const now = Date.now();
+    const sampleMessages: Omit<Message, "id">[] = [
+      { clientId: "demo-user-1", senderId: "admin-user-1", senderRole: "admin", body: "Hi Maria! Welcome to Sterling Credit Solutions. I've reviewed your uploaded reports and we have a solid plan to start improving your profile.", attachmentUrl: null, attachmentName: null, readAt: new Date(now - 6 * 86400000).toISOString(), createdAt: new Date(now - 6 * 86400000).toISOString() },
+      { clientId: "demo-user-1", senderId: "demo-user-1", senderRole: "user", body: "Thank you! I'm excited to get started. What should I do first?", attachmentUrl: null, attachmentName: null, readAt: new Date(now - 5.5 * 86400000).toISOString(), createdAt: new Date(now - 5.5 * 86400000).toISOString() },
+      { clientId: "demo-user-1", senderId: "admin-user-1", senderRole: "admin", body: "Great question. Let's begin with the two collection accounts — those have the highest potential impact on your score.", attachmentUrl: null, attachmentName: null, readAt: new Date(now - 5 * 86400000).toISOString(), createdAt: new Date(now - 5 * 86400000).toISOString() },
+      // Most recent 3 from admin, unread by client
+      { clientId: "demo-user-1", senderId: "admin-user-1", senderRole: "admin", body: "I've drafted your first dispute letter for the Midland Credit collection. Please review it in the Disputes section.", attachmentUrl: "#", attachmentName: "midland-dispute-draft.pdf", readAt: null, createdAt: new Date(now - 2 * 86400000).toISOString() },
+      { clientId: "demo-user-1", senderId: "admin-user-1", senderRole: "admin", body: "Also, remember the FCRA 30-day response window starts once the bureau receives the letter. I've added the deadlines to your calendar.", attachmentUrl: null, attachmentName: null, readAt: null, createdAt: new Date(now - 1 * 86400000).toISOString() },
+      { clientId: "demo-user-1", senderId: "admin-user-1", senderRole: "admin", body: "Let me know if you have any questions. We're making great progress!", attachmentUrl: null, attachmentName: null, readAt: null, createdAt: new Date(now - 0.2 * 86400000).toISOString() },
+    ];
+    sampleMessages.forEach((m, i) => {
+      const id = `msg-${i + 1}`;
+      this.messagesMap.set(id, { ...m, id });
+    });
+
+    // ===== Calendar events (Maria) =====
+    const dayMs = 86400000;
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const sampleEvents: Omit<CalendarEvent, "id">[] = [
+      { userId: "demo-user-1", disputeId: "dispute-1", title: "FCRA 30-day response deadline", eventType: "fcra_30_day", eventDate: fmt(new Date(now + 22 * dayMs)), status: "pending", colorTag: "red", notes: "Equifax must respond to Midland dispute", createdBy: "admin-user-1", createdAt: new Date(now - 2 * dayMs).toISOString() },
+      { userId: "demo-user-1", disputeId: "dispute-1", title: "FCRA 15-day extension deadline", eventType: "fcra_15_day_extension", eventDate: fmt(new Date(now + 37 * dayMs)), status: "pending", colorTag: "gold", notes: "Extended deadline if additional info submitted", createdBy: "admin-user-1", createdAt: new Date(now - 2 * dayMs).toISOString() },
+      { userId: "demo-user-1", disputeId: null, title: "Follow-up call with advisor", eventType: "followup", eventDate: fmt(new Date(now + 10 * dayMs)), status: "pending", colorTag: "green", notes: "Review dispute progress", createdBy: "admin-user-1", createdAt: new Date(now - 1 * dayMs).toISOString() },
+      { userId: "demo-user-1", disputeId: null, title: "Pay down Chase card below 30%", eventType: "custom", eventDate: fmt(new Date(now + 5 * dayMs)), status: "pending", colorTag: "blue", notes: "Target: under $2,400 balance", createdBy: "demo-user-1", createdAt: new Date(now - 1 * dayMs).toISOString() },
+    ];
+    sampleEvents.forEach((e, i) => {
+      const id = `cal-${i + 1}`;
+      this.calendarEvents.set(id, { ...e, id });
+    });
+
+    // ===== Documents (Maria) =====
+    const sampleDocs: Omit<Document, "id">[] = [
+      { userId: "demo-user-1", docType: "3b_report", fileName: "identityiq-3b-report.pdf", fileSize: 512000, status: "uploaded", createdAt: new Date(now - 5 * dayMs).toISOString() },
+      { userId: "demo-user-1", docType: "id_license", fileName: "drivers-license.jpg", fileSize: 180000, status: "uploaded", createdAt: new Date(now - 5 * dayMs).toISOString() },
+      { userId: "demo-user-1", docType: "utility_bill", fileName: "electric-bill-june.pdf", fileSize: 95000, status: "uploaded", createdAt: new Date(now - 4 * dayMs).toISOString() },
+    ];
+    sampleDocs.forEach((d, i) => {
+      const id = `doc-${i + 1}`;
+      this.documents.set(id, { ...d, id });
+    });
   }
 
   // Users
@@ -411,6 +505,167 @@ export class MemStorage implements IStorage {
     const item: AuditLog = { ...log, id };
     this.auditLogsMap.set(id, item);
     return item;
+  }
+
+  // Expenses
+  async getExpenses(userId: string, scope?: string) {
+    return Array.from(this.expenses.values())
+      .filter(e => e.userId === userId && (!scope || e.scope === scope))
+      .sort((a, b) => (b.occurredOn || "").localeCompare(a.occurredOn || ""));
+  }
+  async getAllExpenses(scope?: string) {
+    return Array.from(this.expenses.values())
+      .filter(e => !scope || e.scope === scope)
+      .sort((a, b) => (b.occurredOn || "").localeCompare(a.occurredOn || ""));
+  }
+  async createExpense(e: InsertExpense) {
+    const id = randomUUID();
+    const item: Expense = {
+      id,
+      userId: e.userId,
+      scope: e.scope ?? "personal",
+      category: e.category,
+      vendor: e.vendor ?? null,
+      amount: e.amount,
+      currency: e.currency ?? "USD",
+      occurredOn: e.occurredOn,
+      paymentMethod: e.paymentMethod ?? null,
+      notes: e.notes ?? null,
+      receiptUrl: e.receiptUrl ?? null,
+      isRecurring: e.isRecurring ?? false,
+      createdAt: new Date().toISOString(),
+    };
+    this.expenses.set(id, item);
+    return item;
+  }
+  async updateExpense(id: string, data: Partial<Expense>) {
+    const e = this.expenses.get(id);
+    if (!e) return undefined;
+    const updated = { ...e, ...data };
+    this.expenses.set(id, updated);
+    return updated;
+  }
+  async deleteExpense(id: string) {
+    return this.expenses.delete(id);
+  }
+
+  // Messages
+  async getMessages(clientId: string) {
+    return Array.from(this.messagesMap.values())
+      .filter(m => m.clientId === clientId)
+      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+  }
+  async getUnreadCount(clientId: string, forRole: string) {
+    // Count messages the given role has NOT read — i.e. messages sent by the OTHER role that are unread
+    return Array.from(this.messagesMap.values())
+      .filter(m => m.clientId === clientId && m.senderRole !== forRole && !m.readAt).length;
+  }
+  async createMessage(m: Omit<Message, "id">) {
+    const id = randomUUID();
+    const item: Message = { ...m, id };
+    this.messagesMap.set(id, item);
+    return item;
+  }
+  async markMessagesRead(clientId: string, forRole: string) {
+    const nowIso = new Date().toISOString();
+    for (const m of this.messagesMap.values()) {
+      if (m.clientId === clientId && m.senderRole !== forRole && !m.readAt) {
+        m.readAt = nowIso;
+        this.messagesMap.set(m.id, m);
+      }
+    }
+  }
+
+  // Calendar Events
+  async getCalendarEvents(userId: string) {
+    return Array.from(this.calendarEvents.values())
+      .filter(e => e.userId === userId)
+      .sort((a, b) => (a.eventDate || "").localeCompare(b.eventDate || ""));
+  }
+  async getAllCalendarEvents() {
+    return Array.from(this.calendarEvents.values())
+      .sort((a, b) => (a.eventDate || "").localeCompare(b.eventDate || ""));
+  }
+  async createCalendarEvent(e: Omit<CalendarEvent, "id">) {
+    const id = randomUUID();
+    const item: CalendarEvent = { ...e, id };
+    this.calendarEvents.set(id, item);
+    return item;
+  }
+  async updateCalendarEvent(id: string, data: Partial<CalendarEvent>) {
+    const e = this.calendarEvents.get(id);
+    if (!e) return undefined;
+    const updated = { ...e, ...data };
+    this.calendarEvents.set(id, updated);
+    return updated;
+  }
+  async deleteCalendarEvent(id: string) {
+    return this.calendarEvents.delete(id);
+  }
+  async generateFcraEventsForDispute(dispute: Dispute) {
+    const base = dispute.createdAt ? new Date(dispute.createdAt) : new Date();
+    const addDays = (n: number) => {
+      const d = new Date(base.getTime() + n * 86400000);
+      return d.toISOString().slice(0, 10);
+    };
+    const events: CalendarEvent[] = [];
+    events.push(await this.createCalendarEvent({
+      userId: dispute.userId,
+      disputeId: dispute.id,
+      title: "FCRA 30-day response deadline",
+      eventType: "fcra_30_day",
+      eventDate: addDays(30),
+      status: "pending",
+      colorTag: "red",
+      notes: dispute.creditorName ? `Response deadline for dispute: ${dispute.creditorName}` : "FCRA 30-day response deadline",
+      createdBy: dispute.userId,
+      createdAt: new Date().toISOString(),
+    }));
+    events.push(await this.createCalendarEvent({
+      userId: dispute.userId,
+      disputeId: dispute.id,
+      title: "FCRA 15-day extension deadline",
+      eventType: "fcra_15_day_extension",
+      eventDate: addDays(45),
+      status: "pending",
+      colorTag: "gold",
+      notes: dispute.creditorName ? `Extension deadline for dispute: ${dispute.creditorName}` : "FCRA 15-day extension deadline",
+      createdBy: dispute.userId,
+      createdAt: new Date().toISOString(),
+    }));
+    return events;
+  }
+
+  // Documents
+  async getDocuments(userId: string) {
+    return Array.from(this.documents.values())
+      .filter(d => d.userId === userId)
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }
+  async createDocument(d: Omit<Document, "id">) {
+    const id = randomUUID();
+    const item: Document = { ...d, id };
+    this.documents.set(id, item);
+    return item;
+  }
+  async deleteDocument(id: string) {
+    return this.documents.delete(id);
+  }
+
+  // User cascade delete
+  async deleteUser(id: string) {
+    if (!this.users.has(id)) return false;
+    this.users.delete(id);
+    for (const [k, v] of this.creditReports) if (v.userId === id) this.creditReports.delete(k);
+    for (const [k, v] of this.tradelinesMap) if (v.userId === id) this.tradelinesMap.delete(k);
+    for (const [k, v] of this.disputesMap) if (v.userId === id) this.disputesMap.delete(k);
+    for (const [k, v] of this.analysesMap) if (v.userId === id) this.analysesMap.delete(k);
+    for (const [k, v] of this.comparisonsMap) if (v.userId === id) this.comparisonsMap.delete(k);
+    for (const [k, v] of this.expenses) if (v.userId === id) this.expenses.delete(k);
+    for (const [k, v] of this.messagesMap) if (v.clientId === id) this.messagesMap.delete(k);
+    for (const [k, v] of this.calendarEvents) if (v.userId === id) this.calendarEvents.delete(k);
+    for (const [k, v] of this.documents) if (v.userId === id) this.documents.delete(k);
+    return true;
   }
 
   // Stats

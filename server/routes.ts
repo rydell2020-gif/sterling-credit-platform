@@ -1,6 +1,13 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+
+const DEMO_USER_ID = "demo-user-1";
+
+function resolveUserId(req: Request): string {
+  const header = req.header("x-user-id");
+  return (header && header.trim()) || DEMO_USER_ID;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -140,6 +147,12 @@ export async function registerRoutes(
       metadata: { bureau: req.body.bureau } as unknown,
       createdAt: new Date().toISOString(),
     });
+    // Auto-populate FCRA compliance calendar deadlines
+    try {
+      await storage.generateFcraEventsForDispute(dispute);
+    } catch (err) {
+      console.error("Failed to generate FCRA calendar events:", err);
+    }
     res.json(dispute);
   });
 
@@ -169,6 +182,177 @@ export async function registerRoutes(
   app.get("/api/admin/stats", async (_req, res) => {
     const stats = await storage.getStats();
     res.json(stats);
+  });
+
+  // ===== Expenses =====
+  app.get("/api/expenses", async (req, res) => {
+    const userId = resolveUserId(req);
+    const scope = typeof req.query.scope === "string" ? req.query.scope : undefined;
+    const expenses = await storage.getExpenses(userId, scope);
+    res.json(expenses);
+  });
+
+  app.get("/api/admin/expenses", async (req, res) => {
+    const scope = typeof req.query.scope === "string" ? req.query.scope : "business";
+    const expenses = await storage.getAllExpenses(scope);
+    res.json(expenses);
+  });
+
+  app.post("/api/expenses", async (req, res) => {
+    const userId = req.body.userId || resolveUserId(req);
+    const expense = await storage.createExpense({ ...req.body, userId });
+    await storage.createAuditLog({
+      userId,
+      action: "expense_created",
+      resource: "expenses",
+      resourceId: expense.id,
+      metadata: { category: expense.category, amount: expense.amount, scope: expense.scope } as unknown,
+      createdAt: new Date().toISOString(),
+    });
+    res.json(expense);
+  });
+
+  app.patch("/api/expenses/:id", async (req, res) => {
+    const updated = await storage.updateExpense(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/expenses/:id", async (req, res) => {
+    const ok = await storage.deleteExpense(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  // ===== Messages =====
+  app.get("/api/messages/:clientId", async (req, res) => {
+    const messages = await storage.getMessages(req.params.clientId);
+    const forRole = typeof req.query.forRole === "string" ? req.query.forRole : "user";
+    const unread = await storage.getUnreadCount(req.params.clientId, forRole);
+    res.json({ messages, unread });
+  });
+
+  app.post("/api/messages", async (req, res) => {
+    const message = await storage.createMessage({
+      clientId: req.body.clientId,
+      senderId: req.body.senderId,
+      senderRole: req.body.senderRole,
+      body: req.body.body,
+      attachmentUrl: req.body.attachmentUrl ?? null,
+      attachmentName: req.body.attachmentName ?? null,
+      readAt: null,
+      createdAt: new Date().toISOString(),
+    });
+    res.json(message);
+  });
+
+  app.post("/api/messages/:clientId/read", async (req, res) => {
+    const forRole = req.body?.forRole || (typeof req.query.forRole === "string" ? req.query.forRole : "user");
+    await storage.markMessagesRead(req.params.clientId, forRole);
+    res.json({ success: true });
+  });
+
+  // ===== Calendar =====
+  app.get("/api/calendar", async (req, res) => {
+    const userId = resolveUserId(req);
+    const events = await storage.getCalendarEvents(userId);
+    res.json(events);
+  });
+
+  app.get("/api/admin/calendar", async (_req, res) => {
+    const events = await storage.getAllCalendarEvents();
+    res.json(events);
+  });
+
+  app.post("/api/calendar", async (req, res) => {
+    const userId = req.body.userId || resolveUserId(req);
+    const event = await storage.createCalendarEvent({
+      userId,
+      disputeId: req.body.disputeId ?? null,
+      title: req.body.title,
+      eventType: req.body.eventType || "custom",
+      eventDate: req.body.eventDate,
+      status: req.body.status || "pending",
+      colorTag: req.body.colorTag ?? null,
+      notes: req.body.notes ?? null,
+      createdBy: req.body.createdBy || userId,
+      createdAt: new Date().toISOString(),
+    });
+    res.json(event);
+  });
+
+  app.patch("/api/calendar/:id", async (req, res) => {
+    const updated = await storage.updateCalendarEvent(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/calendar/:id", async (req, res) => {
+    const ok = await storage.deleteCalendarEvent(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  // ===== Documents =====
+  app.get("/api/documents", async (req, res) => {
+    const userId = resolveUserId(req);
+    const docs = await storage.getDocuments(userId);
+    res.json(docs);
+  });
+
+  app.post("/api/documents", async (req, res) => {
+    const userId = req.body.userId || resolveUserId(req);
+    const doc = await storage.createDocument({
+      userId,
+      docType: req.body.docType,
+      fileName: req.body.fileName,
+      fileSize: req.body.fileSize ?? null,
+      status: req.body.status || "uploaded",
+      createdAt: new Date().toISOString(),
+    });
+    await storage.createAuditLog({
+      userId,
+      action: "document_uploaded",
+      resource: "documents",
+      resourceId: doc.id,
+      metadata: { docType: doc.docType, fileName: doc.fileName } as unknown,
+      createdAt: new Date().toISOString(),
+    });
+    res.json(doc);
+  });
+
+  app.delete("/api/documents/:id", async (req, res) => {
+    const ok = await storage.deleteDocument(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  // ===== Admin user detail / edit / delete =====
+  app.get("/api/admin/users/:id", async (req, res) => {
+    const user = await storage.getUser(req.params.id);
+    if (!user) return res.status(404).json({ error: "Not found" });
+    const [reports, tradelines, disputes, analyses, documents, expenses, calendarEvents] = await Promise.all([
+      storage.getCreditReports(user.id),
+      storage.getTradelines(user.id),
+      storage.getDisputes(user.id),
+      storage.getAnalyses(user.id),
+      storage.getDocuments(user.id),
+      storage.getExpenses(user.id),
+      storage.getCalendarEvents(user.id),
+    ]);
+    res.json({ user, reports, tradelines, disputes, analyses, documents, expenses, calendarEvents });
+  });
+
+  app.patch("/api/admin/users/:id", async (req, res) => {
+    const updated = await storage.updateUser(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/admin/users/:id", async (req, res) => {
+    const ok = await storage.deleteUser(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
   });
 
   return httpServer;

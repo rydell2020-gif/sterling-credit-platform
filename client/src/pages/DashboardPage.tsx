@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
+import { MessagesCard } from "@/components/MessagesCard";
 import {
   FileText,
   AlertTriangle,
@@ -124,6 +125,9 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Messages from advisor */}
+      <MessagesCard />
 
       {/* DIY Credit Journey */}
       <Card className="mb-8">

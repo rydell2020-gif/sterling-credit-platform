@@ -13,6 +13,8 @@ import AnalysisPage from "@/pages/AnalysisPage";
 import DisputesPage from "@/pages/DisputesPage";
 import ReportPage from "@/pages/ReportPage";
 import ComparisonPage from "@/pages/ComparisonPage";
+import ExpensesPage from "@/pages/ExpensesPage";
+import CalendarPage from "@/pages/CalendarPage";
 import CompliancePage from "@/pages/CompliancePage";
 import AdminPage from "@/pages/AdminPage";
 import NotFound from "@/pages/not-found";
@@ -50,6 +52,12 @@ function AppRouter() {
       </Route>
       <Route path="/comparison">
         <ProtectedRoute component={ComparisonPage} />
+      </Route>
+      <Route path="/expenses">
+        <ProtectedRoute component={ExpensesPage} />
+      </Route>
+      <Route path="/calendar">
+        <ProtectedRoute component={CalendarPage} />
       </Route>
       <Route path="/compliance">
         <CompliancePage />
