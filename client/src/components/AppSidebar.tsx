@@ -11,6 +11,7 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import scsLogo from "@assets/scs-logo.jpg";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -36,9 +37,12 @@ export function AppSidebar() {
       {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
         <Link href="/dashboard" className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-serif font-bold text-lg">S</span>
-          </div>
+          <img
+            src={scsLogo}
+            alt="Sterling Credit Solutions logo"
+            className="w-10 h-10 rounded-full object-cover"
+            data-testid="img-logo-sidebar"
+          />
           <div>
             <h1 className="font-serif text-lg leading-tight text-sidebar-foreground">Sterling</h1>
             <p className="text-xs text-muted-foreground">Credit Solutions</p>

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { Shield, CheckCircle, AlertTriangle, Mail } from "lucide-react";
+import scsLogo from "@assets/scs-logo.jpg";
 
 type AuthMode = "login" | "signup" | "magic";
 
@@ -74,9 +75,12 @@ export default function LoginPage() {
         <div className="flex flex-col gap-10 max-w-md">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center">
-                <span className="text-primary-foreground font-serif font-bold text-2xl">S</span>
-              </div>
+              <img
+                src={scsLogo}
+                alt="Sterling Credit Solutions logo"
+                className="w-14 h-14 rounded-full object-cover"
+                data-testid="img-logo-desktop"
+              />
             </div>
             <h1 className="font-serif text-2xl text-foreground mt-3">Sterling Credit Solutions</h1>
             <p className="text-muted-foreground mt-2 leading-relaxed">
@@ -115,9 +119,12 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-serif font-bold text-lg">S</span>
-            </div>
+            <img
+              src={scsLogo}
+              alt="Sterling Credit Solutions logo"
+              className="w-10 h-10 rounded-full object-cover"
+              data-testid="img-logo-mobile"
+            />
             <h1 className="font-serif text-xl">Sterling Credit Solutions</h1>
           </div>
 
