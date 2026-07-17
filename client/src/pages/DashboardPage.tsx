@@ -41,11 +41,21 @@ export default function DashboardPage() {
     disputesGenerated: number;
     issuesDetected: number;
     bureausCovered: string[];
+    scoresByBureau: Record<string, number | null>;
     recentReports: Array<{ id: string; bureau: string; fileName: string; status: string; createdAt: string }>;
   }>({
     queryKey: ["/api/dashboard", user?.id],
     enabled: !!user,
   });
+
+  // FICO score band coloring: 800+ excellent, 740+ very good, 670+ good, 580+ fair, below poor
+  const scoreBand = (score: number) => {
+    if (score >= 800) return { label: "Excellent", color: "text-green-400 border-green-500/40 bg-green-500/10" };
+    if (score >= 740) return { label: "Very Good", color: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10" };
+    if (score >= 670) return { label: "Good", color: "text-blue-400 border-blue-500/40 bg-blue-500/10" };
+    if (score >= 580) return { label: "Fair", color: "text-amber-400 border-amber-500/40 bg-amber-500/10" };
+    return { label: "Poor", color: "text-red-400 border-red-500/40 bg-red-500/10" };
+  };
 
   const stats = [
     { label: "Reports Uploaded", value: dashboard?.reportsUploaded ?? 0, icon: FileText, color: "text-primary" },
@@ -89,36 +99,50 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Bureau coverage */}
+      {/* Credit scores by bureau (from most recent 3B/4K report) */}
       <Card className="mb-8">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Bureau Coverage</CardTitle>
+          <CardTitle className="text-sm font-medium">Credit Scores by Bureau</CardTitle>
+          <p className="text-xs text-muted-foreground">From your most recent 3B or 4K consumer report (SmartCredit).</p>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {allBureaus.map((b) => {
               const bureau = BUREAU_MAP[b];
               const isCovered = coveredBureaus.includes(b);
+              const score = dashboard?.scoresByBureau?.[b] ?? null;
+              const band = score != null ? scoreBand(score) : null;
               return (
                 <div
                   key={b}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-                    isCovered ? "border-green-500/30 bg-green-500/5" : "border-border bg-muted/30"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
+                    isCovered ? "border-border bg-muted/20" : "border-border bg-muted/30"
                   }`}
+                  data-testid={`score-bureau-${b}`}
                 >
-                  <div className={`w-6 h-6 rounded text-xs font-bold flex items-center justify-center text-white ${bureau.color}`}>
+                  <div className={`w-8 h-8 rounded text-xs font-bold flex items-center justify-center text-white ${bureau.color} shrink-0`}>
                     {bureau.abbr}
                   </div>
-                  <span className="text-sm">{bureau.label}</span>
-                  {isCovered ? (
-                    <Badge variant="outline" className="text-green-500 border-green-500/30 text-xs">
-                      Uploaded
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-muted-foreground text-xs">
-                      Missing
-                    </Badge>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground">{bureau.label}</p>
+                    {score != null ? (
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-serif text-2xl leading-none" data-testid={`score-value-${b}`}>{score}</span>
+                        {band && (
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${band.color}`}>
+                            {band.label}
+                          </Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">No report</span>
+                        <Badge variant="outline" className="text-muted-foreground text-[10px] px-1.5 py-0">
+                          Missing
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

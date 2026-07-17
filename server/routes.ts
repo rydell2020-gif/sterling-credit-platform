@@ -61,11 +61,20 @@ export async function registerRoutes(
     ]);
     const bureaus = [...new Set(reports.map(r => r.bureau))];
     const derogatory = tradelines.filter(t => t.isDerogatory).length;
+    // Most recent score per bureau (from the newest report of that bureau)
+    const scoresByBureau: Record<string, number | null> = {};
+    for (const bureau of bureaus) {
+      const bureauReports = reports
+        .filter(r => r.bureau === bureau)
+        .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+      scoresByBureau[bureau] = bureauReports[0]?.rawScore ?? null;
+    }
     res.json({
       reportsUploaded: reports.length,
       disputesGenerated: disputes.length,
       issuesDetected: derogatory,
       bureausCovered: bureaus,
+      scoresByBureau,
       recentReports: reports.slice(0, 5),
     });
   });
