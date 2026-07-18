@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,27 +78,27 @@ export default function ReportPage() {
   });
 
   const downloadReport = async () => {
-    if (!user || !tradelines) return;
+    if (!user) return;
     setGenerating(true);
-
     try {
-      const html = buildReportHTML({
-        userName: user.fullName,
-        tradelines: tradelines || [],
-        disputes: disputes || [],
-        reportsCount: dashboard?.reportsUploaded || 0,
-        bureaus: dashboard?.bureausCovered || [],
+      const res = await apiRequest("POST", `/api/report/${user.id}/pdf`, {
+        includeAnalysis: true,
+        includeTradelines: true,
+        includeDisputes: true,
+        includeFCRAReference: true,
+        includeDisclaimers: true,
       });
-
-      const blob = new Blob([html], { type: "text/html" });
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `SCS-Credit-Report-${Date.now()}.html`;
+      a.download = `Sterling-Credit-Report-${Date.now()}.pdf`;
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      alert("Report generation failed. Please try again.");
+    } catch (e) {
+      alert("PDF generation failed. Please try again.");
     }
     setGenerating(false);
   };
@@ -183,22 +184,22 @@ export default function ReportPage() {
           </CardContent>
         </Card>
 
-        <Button className="w-full mb-4" onClick={downloadReport} disabled={!ackd || generating} size="lg">
+        <Button className="w-full mb-4" onClick={downloadReport} disabled={!ackd || generating} size="lg" data-testid="button-download-pdf">
           {generating ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Generating Report...
+              Generating PDF…
             </>
           ) : (
             <>
               <Download className="h-4 w-4 mr-2" />
-              Download Full Report (HTML/PDF)
+              Download Full Report (PDF)
             </>
           )}
         </Button>
 
         <p className="text-xs text-muted-foreground text-center mb-6">
-          Open the downloaded HTML file in any browser and use <strong>File → Print → Save as PDF</strong> for a PDF version.
+          PDF is generated server-side and includes your analysis, tradelines, dispute summary, FCRA rights, and disclaimers.
         </p>
 
         <Card className="bg-muted/30">

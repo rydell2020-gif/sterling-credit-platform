@@ -120,19 +120,62 @@ export async function registerRoutes(
 
   app.post("/api/analysis/:userId/run", async (req, res) => {
     const userId = req.params.userId;
-    // Return existing or generate mock analysis
-    const existing = await storage.getAnalyses(userId);
-    if (existing.length > 0) {
-      return res.json(existing[0]);
+    try {
+      const tradelines = await storage.getTradelines(userId);
+      if (!tradelines.length) {
+        return res.status(400).json({ error: "No tradelines found. Upload a credit report first." });
+      }
+      const { runCreditAnalysis } = await import("./lib/ai");
+      const result = await runCreditAnalysis(tradelines);
+      const analysis = await storage.createAnalysis({
+        userId,
+        recommendations: result.recommendations as unknown,
+        priorityActions: result.priority_actions as unknown,
+        riskAssessment: result.risk_assessment as unknown,
+        createdAt: new Date().toISOString(),
+      });
+      await storage.createAuditLog({
+        userId,
+        action: "analysis_generated",
+        resource: "ai_analyses",
+        resourceId: analysis.id,
+        metadata: { tradelines: tradelines.length, model: "claude_sonnet_4_6" } as unknown,
+        createdAt: new Date().toISOString(),
+      });
+      res.json(analysis);
+    } catch (e: any) {
+      console.error("Analysis error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Analysis failed" });
     }
-    const analysis = await storage.createAnalysis({
-      userId,
-      recommendations: [] as unknown,
-      priorityActions: [] as unknown,
-      riskAssessment: {} as unknown,
-      createdAt: new Date().toISOString(),
-    });
-    res.json(analysis);
+  });
+
+  // AI Dispute Letter Generation
+  app.post("/api/disputes/generate", async (req, res) => {
+    try {
+      const { userId, tradelineId, bureau, grounds, round } = req.body as {
+        userId: string; tradelineId: string; bureau: "transunion"|"equifax"|"experian";
+        grounds: string[]; round?: 1|2|3;
+      };
+      const tl = await storage.getTradelineById(tradelineId);
+      if (!tl) return res.status(404).json({ error: "Tradeline not found" });
+      const { generateDisputeLetter } = await import("./lib/ai");
+      const letter = await generateDisputeLetter({
+        bureau,
+        creditor: tl.creditorName,
+        accountNumber: tl.accountNumber,
+        round: round || 1,
+        grounds: grounds && grounds.length ? grounds : ["inaccurate_info"],
+        reportedInfo: {
+          balance: tl.currentBalance,
+          status: tl.accountStatus,
+          payment_status: tl.paymentStatus,
+        },
+      });
+      res.json(letter);
+    } catch (e: any) {
+      console.error("Dispute generation error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Dispute generation failed" });
+    }
   });
 
   // Disputes
@@ -175,6 +218,157 @@ export async function registerRoutes(
   app.get("/api/comparisons/:userId", async (req, res) => {
     const comps = await storage.getComparisons(req.params.userId);
     res.json(comps);
+  });
+
+  app.post("/api/comparisons/:userId/run", async (req, res) => {
+    const userId = req.params.userId;
+    try {
+      const tradelines = await storage.getTradelines(userId);
+      if (!tradelines.length) {
+        return res.status(400).json({ error: "No tradelines found. Upload credit reports first." });
+      }
+      const { compareBureaus } = await import("./lib/compare");
+      const rows = tradelines.map((t) => ({
+        id: t.id,
+        creditorName: t.creditorName,
+        accountNumber: t.accountNumber,
+        accountType: t.accountType,
+        accountStatus: t.accountStatus,
+        currentBalance: t.currentBalance || 0,
+        creditLimit: t.creditLimit || 0,
+        paymentStatus: t.paymentStatus || "current",
+        bureau: t.bureau,
+      }));
+      const result = compareBureaus(userId, rows);
+      await storage.clearComparisons(userId);
+      for (const d of result.discrepancies) {
+        await storage.createComparison({
+          userId,
+          discrepancyType: d.discrepancyType,
+          creditorName: d.creditorName,
+          accountNumber: d.accountNumber,
+          bureausAffected: d.bureausAffected as unknown,
+          details: d.details as unknown,
+          severity: d.severity,
+          isDisputable: d.isDisputable,
+        });
+      }
+      await storage.createAuditLog({
+        userId,
+        action: "bureau_comparison_run",
+        resource: "bureau_comparisons",
+        resourceId: null,
+        metadata: {
+          bureaus_present: result.bureausPresent,
+          accounts_compared: result.accountsCompared,
+          discrepancies_found: result.discrepancies.length,
+        } as unknown,
+        createdAt: new Date().toISOString(),
+      });
+      const saved = await storage.getComparisons(userId);
+      res.json({
+        success: true,
+        bureaus_present: result.bureausPresent,
+        accounts_compared: result.accountsCompared,
+        discrepancies: saved,
+        message: result.message,
+      });
+    } catch (e: any) {
+      console.error("Comparison error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Comparison failed" });
+    }
+  });
+
+  // PDF report
+  app.post("/api/report/:userId/pdf", async (req, res) => {
+    const userId = req.params.userId;
+    try {
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const [reports, tradelines, disputes, analyses, comparisons] = await Promise.all([
+        storage.getCreditReports(userId),
+        storage.getTradelines(userId),
+        storage.getDisputes(userId),
+        storage.getAnalyses(userId),
+        storage.getComparisons(userId),
+      ]);
+      const analysisRow = analyses[0] || null;
+      const rawRisk = (analysisRow?.riskAssessment as any) || {};
+      const analysis = analysisRow
+        ? {
+            recommendations: (analysisRow.recommendations as any) || [],
+            priority_actions: (analysisRow.priorityActions as any) || [],
+            risk_assessment: {
+              overall_risk: String(rawRisk.overall_risk || rawRisk.overallRisk || "medium"),
+              key_concern: String(rawRisk.key_concern || rawRisk.keyConcern || ""),
+              positive_factors: Array.isArray(rawRisk.positive_factors)
+                ? rawRisk.positive_factors
+                : Array.isArray(rawRisk.positiveFactors)
+                ? rawRisk.positiveFactors
+                : [],
+              improvement_areas: Array.isArray(rawRisk.improvement_areas)
+                ? rawRisk.improvement_areas
+                : Array.isArray(rawRisk.improvementAreas)
+                ? rawRisk.improvementAreas
+                : [],
+            },
+          }
+        : null;
+      const bureausCovered = [...new Set(reports.map((r) => r.bureau))];
+      const issuesDetected = tradelines.filter((t) => t.isDerogatory || t.isDisputable).length + comparisons.length;
+      const opts = req.body || {};
+      const { generatePDF } = await import("./lib/pdf");
+      const buffer = await generatePDF({
+        user: { fullName: user.fullName, email: user.email },
+        reportsUploaded: reports.length,
+        disputesGenerated: disputes.length,
+        issuesDetected,
+        bureausCovered,
+        tradelines: tradelines.map((t) => ({
+          creditorName: t.creditorName,
+          accountType: t.accountType,
+          accountStatus: t.accountStatus,
+          currentBalance: t.currentBalance || 0,
+          creditLimit: t.creditLimit || 0,
+          utilizationPct: t.utilizationPct || 0,
+          paymentStatus: t.paymentStatus || "current",
+          isDerogatory: !!t.isDerogatory,
+          riskScore: t.riskScore || 0,
+          accountAgeMonths: t.accountAgeMonths || 0,
+          bureau: t.bureau,
+        })),
+        disputes: disputes.map((d) => ({
+          bureau: d.bureau,
+          disputeType: d.disputeType,
+          letterSubject: d.letterSubject,
+          status: d.status,
+          createdAt: d.createdAt,
+          creditorName: d.creditorName,
+        })),
+        analysis,
+        options: {
+          includeAnalysis: opts.includeAnalysis !== false,
+          includeTradelines: opts.includeTradelines !== false,
+          includeDisputes: opts.includeDisputes !== false,
+          includeFCRAReference: opts.includeFCRAReference !== false,
+          includeDisclaimers: opts.includeDisclaimers !== false,
+        },
+      });
+      await storage.createAuditLog({
+        userId,
+        action: "pdf_report_generated",
+        resource: "reports",
+        resourceId: null,
+        metadata: { size_bytes: buffer.length } as unknown,
+        createdAt: new Date().toISOString(),
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="sterling-credit-report-${Date.now()}.pdf"`);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("PDF error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "PDF generation failed" });
+    }
   });
 
   // Admin

@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +15,8 @@ import {
   ChevronDown,
   ChevronRight,
   Upload,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 
 interface BureauComparison {
@@ -50,6 +54,7 @@ const SEV_STYLES: Record<string, { border: string; bg: string; text: string }> =
 
 export default function ComparisonPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [filter, setFilter] = useState<"all" | "high" | "disputable">("all");
 
   const { data: comparisons, isLoading } = useQuery<BureauComparison[]>({
@@ -60,6 +65,24 @@ export default function ComparisonPage() {
   const { data: reports } = useQuery<CreditReport[]>({
     queryKey: ["/api/reports", user?.id],
     enabled: !!user,
+  });
+
+  const runComparison = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/comparisons/${user?.id}/run`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/comparisons", user?.id] });
+      const n = data?.discrepancies?.length ?? 0;
+      toast({
+        title: "Comparison complete",
+        description: n > 0 ? `Found ${n} discrepancies across ${data.bureaus_present?.length ?? 0} bureaus.` : "No discrepancies found.",
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Comparison failed", description: e?.message || "Try again.", variant: "destructive" });
+    },
   });
 
   const bureausPresent = Array.from(new Set((reports || []).map((r) => r.bureau)));
@@ -82,6 +105,17 @@ export default function ComparisonPage() {
             Finds discrepancies in how the same accounts are reported across bureaus.
           </p>
         </div>
+        <Button
+          onClick={() => runComparison.mutate()}
+          disabled={runComparison.isPending || bureausPresent.length < 2}
+          data-testid="button-run-comparison"
+        >
+          {runComparison.isPending ? (
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Comparing…</>
+          ) : (
+            <><RefreshCw className="h-4 w-4 mr-2" /> Run Comparison</>
+          )}
+        </Button>
       </div>
 
       {/* Warning if < 2 bureaus */}
@@ -173,10 +207,21 @@ export default function ComparisonPage() {
         <Card className="border-dashed">
           <CardContent className="p-12 text-center">
             <GitCompare className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg font-medium mb-1">No discrepancies found</p>
-            <p className="text-sm text-muted-foreground">
-              Your accounts appear consistent across the bureaus you've uploaded.
+            <p className="text-lg font-medium mb-1">Ready to compare</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Click “Run Comparison” to scan your {bureausPresent.length} uploaded bureau reports for discrepancies.
             </p>
+            <Button
+              onClick={() => runComparison.mutate()}
+              disabled={runComparison.isPending}
+              data-testid="button-run-comparison-empty"
+            >
+              {runComparison.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Comparing…</>
+              ) : (
+                <><RefreshCw className="h-4 w-4 mr-2" /> Run Comparison</>
+              )}
+            </Button>
           </CardContent>
         </Card>
       )}

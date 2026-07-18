@@ -80,21 +80,34 @@ export default function DisputesPage() {
 
   const generateDispute = useMutation({
     mutationFn: async (params: { tradelineId: string; bureau: string; creditorName: string; disputeReason: string }) => {
-      const letterBody = generateLetterBody(params.bureau, params.creditorName, params.disputeReason);
+      // 1) Call the AI letter-generation endpoint
+      const grounds = [params.disputeReason?.toLowerCase().includes("outdated") ? "outdated_info" : "inaccurate_info"];
+      const genRes = await apiRequest("POST", "/api/disputes/generate", {
+        userId: user?.id,
+        tradelineId: params.tradelineId,
+        bureau: params.bureau,
+        grounds,
+        round: 1,
+      });
+      const letter = await genRes.json();
+      // 2) Save the AI-generated letter as a dispute record
       const res = await apiRequest("POST", "/api/disputes", {
         userId: user?.id,
         tradelineId: params.tradelineId,
         bureau: params.bureau,
-        disputeType: "inaccurate_information",
-        letterSubject: `Dispute — ${params.creditorName}`,
-        letterBody,
+        disputeType: letter.dispute_type || "inaccurate_info",
+        letterSubject: letter.subject || `Dispute — ${params.creditorName}`,
+        letterBody: letter.body,
         creditorName: params.creditorName,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/disputes", user?.id] });
-      toast({ title: "Dispute letter generated", description: "Review and edit before sending." });
+      toast({ title: "AI dispute letter generated", description: "Review, personalize, and sign before mailing." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Letter generation failed", description: e?.message || "Try again.", variant: "destructive" });
     },
   });
 

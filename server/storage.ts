@@ -36,6 +36,7 @@ export interface IStorage {
   // Bureau Comparisons
   getComparisons(userId: string): Promise<BureauComparison[]>;
   createComparison(c: Omit<BureauComparison, "id">): Promise<BureauComparison>;
+  clearComparisons(userId: string): Promise<void>;
 
   // Audit Logs
   getAuditLogs(limit?: number): Promise<AuditLog[]>;
@@ -230,6 +231,29 @@ export class MemStorage implements IStorage {
         times30DaysLate: 0, times60DaysLate: 0, times90DaysLate: 0,
         bureau: "experian",
       },
+      // Cross-bureau duplicates with intentional discrepancies to show the Comparison view
+      {
+        userId: "demo-user-1", reportId: "report-2",
+        creditorName: "Chase Bank", accountNumber: "****4521",
+        accountType: "Credit Card", accountStatus: "open",
+        currentBalance: 3712, creditLimit: 8000, utilizationPct: 46.4,
+        paymentStatus: "current", accountAgeMonths: 36,
+        riskScore: 47, isDerogatory: false, isDisputable: true,
+        disputeReason: "Balance reported $262 higher than TransUnion — bureau inconsistency",
+        times30DaysLate: 0, times60DaysLate: 0, times90DaysLate: 0,
+        bureau: "equifax",
+      },
+      {
+        userId: "demo-user-1", reportId: "report-3",
+        creditorName: "Chase Bank", accountNumber: "****4521",
+        accountType: "Credit Card", accountStatus: "open",
+        currentBalance: 3450, creditLimit: 7500, utilizationPct: 46.0,
+        paymentStatus: "current", accountAgeMonths: 36,
+        riskScore: 46, isDerogatory: false, isDisputable: true,
+        disputeReason: "Credit limit reported as $7,500 vs $8,000 on other bureaus",
+        times30DaysLate: 0, times60DaysLate: 0, times90DaysLate: 0,
+        bureau: "experian",
+      },
       {
         userId: "demo-user-1", reportId: "report-3",
         creditorName: "Discover", accountNumber: "****8899",
@@ -315,16 +339,40 @@ export class MemStorage implements IStorage {
         },
       ] as unknown,
       priorityActions: [
-        "Dispute Midland Credit Mgmt collection with Equifax",
-        "Dispute Portfolio Recovery collection with Experian",
-        "Contest Wells Fargo late payment with Equifax",
-        "Pay down Chase card to below $2,400",
+        {
+          title: "Dispute the Midland Credit Mgmt collection with Equifax",
+          description: "Send a debt validation letter under FDCPA § 809 and request bureau reinvestigation under FCRA § 611. Include certified mail tracking and a copy of the original credit report.",
+          timeline: "Within the next 30 days",
+        },
+        {
+          title: "Dispute the Portfolio Recovery collection with Experian",
+          description: "Portfolio Recovery is a debt buyer — request full chain-of-title documentation and account validation. Do not admit the debt is yours before validation is received.",
+          timeline: "Within the next 30 days",
+        },
+        {
+          title: "Contest the Wells Fargo late payment with Equifax",
+          description: "If the late payment was made on time or was a bank processing delay, gather bank statements and a payment confirmation, and submit a dispute directly to Equifax.",
+          timeline: "Within the next 14 days",
+        },
+        {
+          title: "Pay down Chase revolving balance below 30% utilization",
+          description: "Bringing the Chase card balance to approximately $2,400 or lower will reduce your utilization ratio, which is one of the most controllable near-term credit factors.",
+          timeline: "Begin immediately; effect visible within 1–2 billing cycles",
+        },
       ] as unknown,
       riskAssessment: {
-        overallRisk: "medium-high",
-        derogatoryCount: 3,
-        utilizationAvg: 28.4,
-        oldestAccount: "5 years",
+        overall_risk: "medium-high",
+        key_concern: "Three derogatory accounts across two bureaus — two open collections and a charged-off installment loan — combined with elevated Chase utilization (43–46%) and a currently-delinquent auto loan present a compounding negative signal to lenders.",
+        positive_factors: [
+          "Two revolving accounts (Discover, Capital One) reporting on-time payments and under 30% utilization",
+          "One long-tenured closed account (Synchrony/Amazon, 60 months) still contributing to average account age",
+          "No open accounts younger than 14 months — no signs of aggressive new-credit seeking",
+        ],
+        improvement_areas: [
+          "Dispute inaccuracies on the two collection accounts and the Wells Fargo late payment",
+          "Reduce Chase revolving utilization to below 30% (ideally below 10%) across all three bureaus",
+          "Consult a licensed professional about the USAA charge-off before making any payment or settlement",
+        ],
       } as unknown,
       createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
     };
@@ -516,6 +564,11 @@ export class MemStorage implements IStorage {
     const item: BureauComparison = { ...c, id };
     this.comparisonsMap.set(id, item);
     return item;
+  }
+  async clearComparisons(userId: string) {
+    for (const [id, c] of Array.from(this.comparisonsMap.entries())) {
+      if (c.userId === userId) this.comparisonsMap.delete(id);
+    }
   }
 
   // Audit Logs
